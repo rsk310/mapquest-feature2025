@@ -1,0 +1,500 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head><body>
+<title>マップクエストを読む地図</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Old+Mincho:wght@700;900&display=swap">
+<style>
+/* Layout: 一枚の地形図のように読む。各節は「凡例・図・説明」の組で、図を触ると説明が変わる */
+:root{
+  --paper:#EDF1ED; --paper-2:#E1E8E2; --sheet:#F7F9F6;
+  --ink:#16242D; --ink-2:#4B5B63; --line:#C3CEC7;
+  --land:#D7E1D4; --forest:#BFD3B9; --water:#3B7CA4; --water-soft:#CFE0EA;
+  --pin:#CF3B28; --pin-soft:#F3D3CC; --road:#FFFFFF;
+  --f-display:"Zen Old Mincho","Hiragino Mincho ProN","Yu Mincho",serif;
+  --f-body:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#111A1F; --paper-2:#18232A; --sheet:#152027;
+  --ink:#E4EBE7; --ink-2:#9EABB1; --line:#2D3B43;
+  --land:#1D2A30; --forest:#20352B; --water:#5FA2CB; --water-soft:#1B3242;
+  --pin:#F06450; --pin-soft:#3D2420; --road:#2C3A42; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#111A1F; --paper-2:#18232A; --sheet:#152027;
+  --ink:#E4EBE7; --ink-2:#9EABB1; --line:#2D3B43;
+  --land:#1D2A30; --forest:#20352B; --water:#5FA2CB; --water-soft:#1B3242;
+  --pin:#F06450; --pin-soft:#3D2420; --road:#2C3A42; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.8;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto}
+h1,h2,h3{font-family:var(--f-display);font-weight:900;line-height:1.35;text-wrap:balance;margin:0}
+p{margin:0}
+.mono{font-family:var(--f-mono);font-size:12px;letter-spacing:.06em;color:var(--ink-2)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--pin);outline-offset:3px}
+
+/* 図郭（地図の枠） */
+.sheet-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--ink);padding-block:18px 8px}
+section{padding-block:56px;border-bottom:1px solid var(--line)}
+.sec-label{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-bottom:14px}
+.sec-label h2{font-size:clamp(24px,3.4vw,34px)}
+.lead{max-width:40em;color:var(--ink-2);margin-bottom:28px}
+
+/* HERO */
+.hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:40px;align-items:center;padding-block:40px 56px}
+.hero h1{font-size:clamp(32px,4.4vw,50px);letter-spacing:.02em;word-break:keep-all}
+.hero h1 em{font-style:normal;color:var(--pin)}
+.hero .who{margin-top:18px;font-weight:700}
+.hero .intro{margin-top:14px;color:var(--ink-2);max-width:30em}
+.figure{background:var(--sheet);border:1px solid var(--line);border-radius:4px;position:relative;overflow:hidden}
+.figure svg{display:block;width:100%;height:auto}
+.fig-bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
+.seg{display:inline-flex;border:1px solid var(--ink);border-radius:999px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:6px 16px;cursor:pointer;font-size:14px;font-weight:700}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.caption{font-size:14px;color:var(--ink-2);min-height:3.4em;padding:0 12px 12px}
+
+/* 凡例 */
+.legend{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--ink);background:var(--sheet)}
+.legend div{padding:16px 18px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0}
+.legend div:nth-child(3n){border-right:0}
+.legend div:nth-last-child(-n+3){border-bottom:0}
+.legend b{display:block;font-family:var(--f-display);font-size:clamp(28px,4vw,40px);line-height:1.2;font-variant-numeric:tabular-nums}
+.legend b small{font-size:.45em;margin-left:2px}
+.legend span{font-size:13px;color:var(--ink-2);display:block;line-height:1.6}
+.legend-title{font-family:var(--f-mono);font-size:12px;letter-spacing:.2em;margin-bottom:8px}
+
+/* GIS × ○○ */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+.chip{border:1px solid var(--ink-2);background:var(--sheet);border-radius:999px;padding:6px 14px;cursor:pointer;font-size:14px;font-weight:500}
+.chip[aria-pressed="true"]{background:var(--pin);border-color:var(--pin);color:#fff}
+.mixer{display:grid;grid-template-columns:minmax(0,6fr) minmax(0,5fr);gap:28px;align-items:start}
+.formula{font-family:var(--f-display);font-size:clamp(22px,3vw,30px);margin-bottom:10px}
+.formula .x{color:var(--pin);margin:0 .3em}
+.card-body h3{font-size:20px;margin-bottom:8px}
+.card-body p+p{margin-top:10px}
+.facts{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:6px}
+.facts li{display:grid;grid-template-columns:auto 1fr;gap:10px;font-size:14px;align-items:baseline}
+.facts li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--pin);transform:translateY(-1px)}
+.tag{display:inline-block;font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;border:1px solid var(--ink-2);padding:0 6px;border-radius:2px;margin-bottom:10px;color:var(--ink-2)}
+.tag.future{border-color:var(--water);color:var(--water)}
+.yours{margin-top:24px;padding-top:18px;border-top:1px dashed var(--line);display:grid;gap:10px}
+.yours label{font-weight:700;font-size:14px}
+.yours input{font:inherit;padding:8px 12px;border:1px solid var(--ink-2);border-radius:4px;background:var(--sheet);color:var(--ink);width:100%;max-width:22em}
+.yours output{font-family:var(--f-display);font-size:20px}
+.yours .note{font-size:13px;color:var(--ink-2)}
+
+/* 働き方 */
+.timeline{display:flex;gap:0;overflow-x:auto;border-top:2px solid var(--ink);margin-bottom:22px;scrollbar-width:thin}
+.timeline button{flex:1 0 128px;background:transparent;border:0;border-right:1px solid var(--line);padding:12px 10px 10px;text-align:left;cursor:pointer;position:relative}
+.timeline button::before{content:"";position:absolute;top:-7px;left:10px;width:12px;height:12px;border-radius:50%;background:var(--paper);border:2px solid var(--ink)}
+.timeline button[aria-pressed="true"]::before{background:var(--pin);border-color:var(--pin)}
+.timeline .yr{font-family:var(--f-mono);font-size:12px;color:var(--ink-2);display:block}
+.timeline .tl{font-weight:700;font-size:14px;line-height:1.5;display:block}
+.tl-detail{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:28px;align-items:start;margin-bottom:36px}
+.tl-detail h3{font-size:22px;margin-bottom:8px}
+.tool-stack{display:flex;flex-wrap:wrap;gap:6px}
+.tool-stack span{font-family:var(--f-mono);font-size:12px;padding:3px 8px;border:1px solid var(--line);border-radius:2px;background:var(--sheet)}
+.tool-stack span.on{border-color:var(--ink);background:var(--ink);color:var(--paper)}
+.culture{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.culture div{background:var(--sheet);padding:18px 20px;min-width:0}
+.culture h3{font-size:18px;margin-bottom:6px}
+.culture p{font-size:14px;color:var(--ink-2)}
+
+/* 世界 */
+.world{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,4fr);gap:28px;align-items:start}
+.world .pt{cursor:pointer}
+.world .pt circle.hit{fill:transparent}
+.world-card h3{font-size:22px;margin-bottom:8px}
+.world-card .place{font-family:var(--f-mono);font-size:12px;color:var(--ink-2);display:block;margin-bottom:6px}
+.stance{margin-top:28px;font-family:var(--f-display);font-size:clamp(20px,2.6vw,26px);border-left:3px solid var(--pin);padding-left:16px}
+.stance small{display:block;font-family:var(--f-body);font-size:13px;color:var(--ink-2);margin-top:6px;font-weight:400}
+
+/* 結び */
+.closing{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;max-width:46em}
+.quote{font-family:var(--f-display);font-size:clamp(22px,3.2vw,32px);line-height:1.6}
+.quote mark{background:linear-gradient(transparent 62%,var(--pin-soft) 62%);color:inherit}
+.closing .by{font-size:14px;color:var(--ink-2)}
+.cta{justify-self:start;display:inline-flex;gap:10px;align-items:center;padding:12px 22px;border-radius:999px;background:var(--pin);color:#fff;font-weight:700;text-decoration:none}
+.cta:hover{filter:brightness(1.08)}
+footer{padding-block:28px 48px;font-size:13px;color:var(--ink-2);display:grid;gap:6px}
+
+/* SVG 共通 */
+.m-block{fill:var(--land)} .m-forest{fill:var(--forest)} .m-water{fill:none;stroke:var(--water);stroke-width:9;stroke-linecap:round;opacity:.75}
+.m-road{stroke:var(--road);stroke-width:5;stroke-linecap:round;fill:none}
+.m-road-edge{stroke:var(--line);stroke-width:7;stroke-linecap:round;fill:none}
+.m-label{font-family:var(--f-mono);font-size:9px;fill:var(--ink-2);letter-spacing:.04em}
+.m-label-b{font-family:var(--f-body);font-size:11px;font-weight:700;fill:var(--ink)}
+.o-node{fill:var(--sheet);stroke:var(--ink);stroke-width:1.2}
+.o-edge{stroke:var(--ink);stroke-width:.8;opacity:.5;stroke-dasharray:2 3}
+.o-route{stroke:var(--pin);stroke-width:3.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.o-pin{fill:var(--pin)} .o-pin-ring{fill:none;stroke:var(--pin);stroke-width:1.5}
+.o-hot{fill:var(--pin);opacity:.22} .o-hot-core{fill:var(--pin);opacity:.6}
+.o-ink{fill:var(--ink)} .o-ink-s{stroke:var(--ink);fill:none;stroke-width:1.2}
+.o-water{fill:var(--water)} .o-water-s{stroke:var(--water);fill:none;stroke-width:2}
+.o-tag{fill:var(--sheet);stroke:var(--ink);stroke-width:1}
+.o-grid{stroke:var(--water);stroke-width:.5;opacity:.35}
+.draw{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw 1.6s ease-out forwards}
+.fade{opacity:0;animation:fade .5s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes fade{to{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(.8);opacity:.25}50%{transform:scale(1.25);opacity:.05}}
+.w-grat{stroke:var(--line);stroke-width:1}
+.w-arc{fill:none;stroke:var(--pin);stroke-width:1.6;stroke-dasharray:4 4}
+.w-arc.local{stroke:var(--water)}
+.w-dot{fill:var(--pin)} .w-dot.home{fill:var(--ink)}
+.pt[aria-pressed="true"] .w-ring{stroke:var(--pin);stroke-width:2;fill:none}
+.pt .w-ring{fill:none;stroke:transparent}
+
+@media (prefers-reduced-motion:reduce){
+  .draw{animation:none;stroke-dashoffset:0}.fade{animation:none;opacity:1}.pulse{animation:none}
+}
+@media (max-width:760px){
+  .hero,.mixer,.tl-detail,.world{grid-template-columns:minmax(0,1fr)}
+  .hero{gap:24px;padding-top:24px}
+  .legend{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .legend div{border-right:1px solid var(--line)!important;border-bottom:1px solid var(--line)!important}
+  .legend div:nth-child(2n){border-right:0!important}
+  .legend div:nth-last-child(-n+2){border-bottom:0!important}
+  .culture{grid-template-columns:minmax(0,1fr)}
+  section{padding-block:44px}
+}
+</style>
+
+<div class="wrap">
+  <div class="sheet-head">
+    <span class="mono">MAPQUEST INC. ／ 会社案内図</span>
+    <span class="mono">本社 豊橋市大岩町 ／ 創業 1992</span>
+  </div>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div>
+      <p class="mono" style="margin-bottom:12px">雑誌「New Voice」2025年6月号の特集記事を、触って読める図にしました</p>
+      <h1>地図の<em>裏側</em>で、<br>考えている会社。</h1>
+      <p class="who">株式会社マップクエスト</p>
+      <p class="intro">スマホの地図アプリや、市役所・会社の業務システム。その「地図の機能」を裏で動かす頭脳が<b>GISエンジン</b>です。マップクエストは、それを自社でつくっている会社です。</p>
+    </div>
+    <div class="figure" id="heroFig">
+      <svg id="heroMap" viewBox="0 0 400 270" role="img" aria-label="街の地図。切り替えると、裏側でGISエンジンが行う計算が重なって表示される"></svg>
+      <div class="fig-bar">
+        <div class="seg" role="group" aria-label="表示の切り替え">
+          <button type="button" id="heroFront" aria-pressed="true">表の地図</button>
+          <button type="button" id="heroBack" aria-pressed="false">裏側を見る</button>
+        </div>
+        <span class="mono" id="heroCoord">34.77°N 137.39°E</span>
+      </div>
+      <p class="caption" id="heroCap">私たちが普段見ているのは、道や川が描かれた「表の地図」です。</p>
+    </div>
+  </div>
+
+  <!-- 凡例 -->
+  <div style="padding-bottom:56px;border-bottom:1px solid var(--line)">
+    <p class="legend-title">凡例 ／ 記事に出てくる数字</p>
+    <div class="legend">
+      <div><b>1992<small>年</small></b><span>豊橋市で創業。GIS（地理情報システム）に特化した技術開発会社</span></div>
+      <div><b>4.1<small>/5</small></b><span>IT製品レビューサイト「ITreview」の総合満足度（2025年4月時点）</span></div>
+      <div><b>約10<small>%</small></b><span>建機の回送計画システムで実現したコスト削減</span></div>
+      <div><b>30<small>項目以上</small></b><span>回送計画で組み合わせる情報の数</span></div>
+      <div><b>200<small>名</small></b><span>インドの工科大学からの採用で集まった応募者</span></div>
+      <div><b>2011<small>年</small></b><span>タイ・バンコクに現地法人 MapQuestAsia を設立</span></div>
+    </div>
+  </div>
+
+  <!-- GIS × ○○ -->
+  <section id="mix">
+    <div class="sec-label"><span class="mono">01</span><h2>GIS × ○○ で、仕事が生まれる</h2></div>
+    <p class="lead">記事の中で社長が使っている言葉が「GIS×○○」です。地図の技術を、ほかの分野と掛け合わせる。○○を選ぶと、実際に生まれたものが地図に現れます。</p>
+    <div class="chips" role="group" aria-label="掛け合わせる分野" id="chips"></div>
+    <div class="mixer">
+      <div class="figure"><svg id="mixMap" viewBox="0 0 400 270" role="img" aria-label="選んだ分野の事例を示す地図"></svg></div>
+      <div class="card-body" id="mixCard" aria-live="polite"></div>
+    </div>
+    <div class="yours">
+      <label for="yourX">あなたなら、GISに何を掛け合わせますか？</label>
+      <input id="yourX" type="text" maxlength="20" placeholder="例：観光、農業、スポーツ…" autocomplete="off">
+      <output id="yourOut" for="yourX">GIS × ？</output>
+      <p class="note">入力した言葉は画面に表示するだけで、送信も保存もしません。</p>
+    </div>
+  </section>
+
+  <!-- 働き方 -->
+  <section id="work">
+    <div class="sec-label"><span class="mono">02</span><h2>道具を変え続けてきた働き方</h2></div>
+    <p class="lead">マップクエストは、社内の道具も早くから入れ替えてきました。記事では、DXとは単なるデジタル化ではなく、仕組み・働き方・価値の届け方を根本から変えることだと語られています。年代を選んでください。</p>
+    <div class="timeline" role="group" aria-label="道具の移り変わり" id="timeline"></div>
+    <div class="tl-detail" aria-live="polite">
+      <div><h3 id="tlTitle"></h3><p id="tlText"></p></div>
+      <div><p class="mono" style="margin-bottom:8px">その時点で使っている道具</p><div class="tool-stack" id="tlTools"></div></div>
+    </div>
+    <p class="legend-title">この会社で働くと</p>
+    <div class="culture">
+      <div><h3>工程全体を見渡して働く</h3><p>社員一人ひとりの裁量が大きく、開発工程全体を見渡しながら主体的に仕事に取り組んでいます。</p></div>
+      <div><h3>年齢や役職でなく、意見で話す</h3><p>社員同士の距離が近く、年齢や役職に関わらずフラットに意見を交わせる。技術力を高め合う土壌になっています。</p></div>
+      <div><h3>働きやすさも仕組みで整える</h3><p>クラウドやリモート技術を取り入れ、残業の削減や休暇の取得促進にも力を入れています。</p></div>
+      <div><h3>改善提案が通る</h3><p>社員からの改善提案を柔軟に取り入れ、意欲のある人がチャレンジできる風土を育てています。</p></div>
+    </div>
+  </section>
+
+  <!-- 世界 -->
+  <section id="world">
+    <div class="sec-label"><span class="mono">03</span><h2>豊橋から、アジアの仲間とつくる</h2></div>
+    <p class="lead">地方の中小企業ですが、仲間は国内にとどまりません。点を選ぶと、それぞれのつながりが分かります。</p>
+    <div class="world">
+      <div class="figure">
+        <svg id="worldMap" viewBox="0 0 600 360" role="group" aria-label="豊橋とアジア各地のつながりを示す座標図"></svg>
+        <p class="caption" style="padding-top:8px;min-height:0">経緯線だけで描いた位置関係の図です（海岸線は省略）。</p>
+      </div>
+      <div class="world-card" id="worldCard" aria-live="polite"></div>
+    </div>
+    <p class="stance">「まずは受け入れて、走りながら体制を整える」<small>人材を採るときの考え方として、記事で語られている言葉です。</small></p>
+  </section>
+
+  <!-- 結び -->
+  <section id="message" style="border-bottom:0">
+    <div class="sec-label"><span class="mono">04</span><h2>社長から、これからの人へ</h2></div>
+    <div class="closing">
+      <p class="quote">事業規模を問わず、<mark>「変化を拒まない姿勢」</mark>こそが、新たなビジネスモデルを創出できる素地だと確信しています。</p>
+      <p class="quote" style="font-size:clamp(18px,2.4vw,24px)">柔軟な発想と実行力を持つ<mark>若い世代の力</mark>にも大いに期待しながら、今後も地図とテクノロジーで社会に貢献してまいります。</p>
+      <p class="by">代表取締役 佐藤 亮介（記事中の発言より）</p>
+      <a class="cta" href="https://www.mapquest.co.jp/" target="_blank" rel="noopener">マップクエストのWebサイトを見る<span aria-hidden="true">→</span></a>
+      <p class="by" style="margin-top:-12px">www.mapquest.co.jp</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>出典：New Voice 2025年6月号 巻頭特集「地図とテクノロジーで拓く次代の価値」（株式会社マップクエスト 代表取締役 佐藤亮介さん）</span>
+    <span>内容は取材当時のものです。地図・図版は説明のためのイメージで、実際の画面や地域を表すものではありません。</span>
+  </footer>
+</div>
+
+<script>
+(()=>{
+const NS="http://www.w3.org/2000/svg";
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+function el(tag,attrs={},parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
+function txt(parent,x,y,s,cls="m-label",anchor="start"){const t=el("text",{x,y,class:cls,"text-anchor":anchor},parent);t.textContent=s;return t}
+
+/* ---- 共通の街（説明用の架空の街） ---- */
+const H=[34,96,166,232], V=[40,118,206,290,362];
+function baseMap(svg){
+  svg.innerHTML="";
+  const g=el("g",{},svg);
+  el("rect",{x:0,y:0,width:400,height:270,fill:"var(--sheet)"},g);
+  // 街区
+  for(let i=0;i<H.length-1;i++)for(let j=0;j<V.length-1;j++){
+    const x=V[j]+7,y=H[i]+7,w=V[j+1]-V[j]-14,h=H[i+1]-H[i]-14;
+    el("rect",{x,y,width:w,height:h,rx:3,class:(i===0&&j===0)?"m-forest":"m-block"},g);
+  }
+  el("rect",{x:0,y:0,width:33,height:270,class:"m-forest",opacity:.6},g);
+  // 川
+  el("path",{d:"M-10 205 C 80 180, 140 230, 230 196 S 360 150, 410 168",class:"m-water"},g);
+  // 道路
+  const roads=el("g",{},g);
+  [...H.map(y=>`M10 ${y} H390`),...V.map(x=>`M${x} 12 V258`)].forEach(d=>{el("path",{d,class:"m-road-edge"},roads)});
+  [...H.map(y=>`M10 ${y} H390`),...V.map(x=>`M${x} 12 V258`)].forEach(d=>{el("path",{d,class:"m-road"},roads)});
+  return g;
+}
+function animLen(path){if(reduce)return;const L=path.getTotalLength();path.style.setProperty("--len",L);path.classList.add("draw")}
+function pin(g,x,y,label,delay=0){
+  const p=el("g",{class:"fade",style:`animation-delay:${delay}s`},g);
+  el("path",{d:`M${x} ${y} l-6 -11 a7 7 0 1 1 12 0 z`,class:"o-pin"},p);
+  el("circle",{cx:x,cy:y-14,r:2.6,fill:"var(--sheet)"},p);
+  if(label){const w=label.length*11+10;el("rect",{x:x+8,y:y-30,width:w,height:17,rx:2,class:"o-tag"},p);txt(p,x+13,y-18,label,"m-label-b")}
+  return p;
+}
+
+/* ---- HERO ---- */
+const hero=document.getElementById("heroMap");
+const heroCap=document.getElementById("heroCap");
+function drawHero(back){
+  baseMap(hero);
+  txt(hero,375,258,"1:2,500（イメージ）","m-label","end");
+  if(!back){
+    pin(hero,V[0],H[0],"現在地");pin(hero,V[4],H[3],"目的地",.1);
+    heroCap.textContent="私たちが普段見ているのは、道や川が描かれた「表の地図」です。";
+    return;
+  }
+  const g=el("g",{},hero);
+  // データの格子
+  for(let x=20;x<400;x+=20)el("line",{x1:x,y1:0,x2:x,y2:270,class:"o-grid"},g);
+  for(let y=20;y<270;y+=20)el("line",{x1:0,y1:y,x2:400,y2:y,class:"o-grid"},g);
+  // 交差点＝ノード、道＝つながり
+  H.forEach(y=>V.forEach(x=>{el("circle",{cx:x,cy:y,r:4,class:"o-node fade",style:`animation-delay:${(x+y)/900}s`},g)}));
+  // 経路を計算
+  const route=el("path",{d:`M${V[0]} ${H[0]} H${V[2]} V${H[2]} H${V[3]} V${H[3]} H${V[4]}`,class:"o-route"},g);
+  animLen(route);
+  pin(g,V[0],H[0],"",0);pin(g,V[4],H[3],"",0);
+  // 注記
+  const notes=[[V[1]+6,H[0]-10,"距離を計算"],[V[2]+8,H[1]+22,"道のつながりを判定"],[V[3]-100,H[2]+40,"川を渡る橋を考慮"]];
+  notes.forEach(([x,y,s],i)=>{const n=el("g",{class:"fade",style:`animation-delay:${.6+i*.35}s`},g);el("rect",{x:x-4,y:y-11,width:s.length*11+8,height:16,rx:2,class:"o-tag"},n);txt(n,x,y+1,s,"m-label-b")});
+  heroCap.textContent="裏側では、交差点や道を「データ」として持ち、距離や経路を計算しています。この計算を担うのがGISエンジン。記事では「地図機能の頭脳」と表現されています。";
+}
+const bF=document.getElementById("heroFront"),bB=document.getElementById("heroBack");
+bF.onclick=()=>{bF.setAttribute("aria-pressed","true");bB.setAttribute("aria-pressed","false");drawHero(false)};
+bB.onclick=()=>{bB.setAttribute("aria-pressed","true");bF.setAttribute("aria-pressed","false");drawHero(true)};
+drawHero(false);
+
+/* ---- GIS × ○○ ---- */
+const CASES=[
+ {id:"rental",chip:"建機レンタル",title:"建設機械の回送計画を自動でつくる",tag:"記事より：新しい事業の例",
+  body:["工事現場で使うレンタル建機は、貸し出しと引き取りのたびに運ぶ必要があります。この「回送」を効率よく回すには、綿密な配送計画が欠かせません。","豊橋市の建機レンタル会社、株式会社レンテック大敬から「煩雑な回送業務を効率化したい」と相談を受けたのが始まりでした。"],
+  facts:["移動距離・所要時間・積み下ろしの作業時間・ドライバーの勤務状況・渋滞の傾向・高速道路を使うかどうかなど、30項目以上を組み合わせて計画を自動作成","業務の省力化とミスの低減、約10%のコスト削減","伊藤忠TC建機株式会社にも評価され、同社のネットワークを通じて全国の建機レンタル会社へ導入が拡大"],
+  draw(g){
+    const d=pin(g,V[0],H[3],"営業所");
+    const sites=[[V[2],H[0],"現場A"],[V[4]-60,H[1],"現場B"],[V[3],H[2],"現場C"]];
+    const r=el("path",{d:`M${V[0]} ${H[3]} V${H[1]} H${V[2]} V${H[0]} H${V[4]} V${H[1]} H${V[4]-60} H${V[4]} V${H[2]} H${V[3]} V${H[3]} H${V[0]}`,class:"o-route"},g);animLen(r);
+    sites.forEach(([x,y,s],i)=>pin(g,x,y,s,.3+i*.3));
+    const box=el("g",{class:"fade",style:"animation-delay:1.4s"},g);
+    el("rect",{x:224,y:200,width:162,height:56,rx:3,class:"o-tag"},box);
+    txt(box,232,216,"考える条件 30項目以上","m-label-b");
+    txt(box,232,232,"距離・時間・作業時間","m-label");
+    txt(box,232,246,"勤務・渋滞・高速道路 …","m-label");
+  }},
+ {id:"safety",chip:"交通安全",title:"事故の多い場所を、地図で見えるようにする",tag:"記事より：地域社会への取り組み",
+  body:["豊橋技術科学大学の松尾幸二郎准教授と共同で開発した「豊橋市交通安全アプリ」。事故が多く起きている地帯を地図の上で見えるようにします。"],
+  facts:["交通事故の予防と、安全への意識の向上を期待","大学と組んで、地域の課題をGISで解く取り組み"],
+  draw(g){
+    const spots=[[V[1],H[1],22],[V[3],H[1],14],[V[2],H[2],28],[V[3],H[3],12]];
+    spots.forEach(([x,y,r],i)=>{const s=el("g",{class:"fade",style:`animation-delay:${i*.2}s`},g);el("circle",{cx:x,cy:y,r:r*1.6,class:"o-hot pulse"},s);el("circle",{cx:x,cy:y,r:r*.55,class:"o-hot-core"},s)});
+    const n=el("g",{class:"fade",style:"animation-delay:.9s"},g);el("rect",{x:V[2]+30,y:H[2]+18,width:96,height:17,rx:2,class:"o-tag"},n);txt(n,V[2]+35,H[2]+30,"事故多発地帯","m-label-b");
+  }},
+ {id:"deer",chip:"獣害対策",title:"シカの目撃情報を地図に集める",tag:"記事より：地域社会への取り組み",
+  body:["愛知県などと連携して開発した「シカ情報マップ」。シカの目撃情報を地図の上で見えるようにするアプリです。"],
+  facts:["農林業の被害や、車とシカの衝突事故を防ぐことに役立てる","山と道路が接する場所の様子を、地図で共有できる"],
+  draw(g){
+    let seed=7;const rnd=()=>((seed=seed*16807%2147483647)/2147483647);
+    for(let i=0;i<16;i++){const x=8+rnd()*120,y=10+rnd()*100;el("circle",{cx:x,cy:y,r:4,class:"o-pin fade",style:`animation-delay:${i*.06}s`},g)}
+    for(let i=0;i<4;i++){const x=V[1]+rnd()*20-10,y=H[1]+30+rnd()*50;el("circle",{cx:x,cy:y,r:4,class:"o-pin fade",style:`animation-delay:${1+i*.08}s`},g)}
+    txt(g,10,128,"山林","m-label-b");
+    const n=el("g",{class:"fade",style:"animation-delay:1.3s"},g);el("rect",{x:140,y:58,width:84,height:17,rx:2,class:"o-tag"},n);txt(n,145,70,"● 目撃情報","m-label-b");
+  }},
+ {id:"dosugoi",chip:"だれでも地図づくり",title:"表を読み込むだけで地図アプリができる",tag:"記事より：地域社会への取り組み",
+  body:["誰でも簡単に地図アプリを作って公開できるアプリメーカー「どすごいマップ」を無料で提供しています。スプレッドシートにまとめた位置情報を読み込ませるだけで、オリジナルの地図アプリを一般公開できます。プログラムは一切不要です。"],
+  facts:["行政や市民団体によるオープンデータの活用を後押し","愛知大学・豊橋創造大学・豊橋技術科学大学の学生と連携し、地域課題をテーマにしたイベントの企画・運営にも協力"],
+  draw(g){
+    const t=el("g",{class:"fade"},g);
+    el("rect",{x:12,y:14,width:150,height:72,rx:3,class:"o-tag"},t);
+    const rows=[["名前","緯度","経度"],["図書館","…","…"],["公園","…","…"],["避難所","…","…"]];
+    rows.forEach((r,i)=>{r.forEach((c,j)=>txt(t,20+j*48,30+i*15,c,i?"m-label":"m-label-b"))});
+    el("line",{x1:12,y1:34,x2:162,y2:34,class:"o-ink-s"},t);
+    txt(g,14,100,"スプレッドシート（例）","m-label");
+    const pts=[[V[2],H[1],"図書館"],[V[3],H[0],"公園"],[V[4],H[2],"避難所"]];
+    pts.forEach(([x,y,s],i)=>{const a=el("path",{d:`M162 ${44+i*15} C 220 ${44+i*15}, ${x-40} ${y-20}, ${x} ${y-16}`,class:"o-ink-s",style:"stroke-dasharray:3 3"},g);pin(g,x,y,s,.5+i*.25)});
+  }},
+ {id:"gov",chip:"まちの仕事",title:"市役所や現場の業務を、地図で支える",tag:"記事より：GISエンジンの使われ方",
+  body:["「簡単・便利・柔軟」をコンセプトにしたGISエンジンは、地図情報を扱うさまざまなシステムに組み込まれています。"],
+  facts:["行政業務向けの統合型GIS","道路の舗装を管理するシステム","ごみ収集の業務を支えるシステム"],
+  draw(g){
+    [[`M10 ${H[1]} H${V[2]}`,"var(--pin)"],[`M${V[3]} 12 V${H[2]}`,"var(--water)"]].forEach(([d,c],i)=>{const p=el("path",{d,stroke:c,"stroke-width":5,fill:"none","stroke-linecap":"round"},g);animLen(p)});
+    const gr=el("path",{d:`M${V[1]} ${H[3]} H${V[4]} V${H[2]} H${V[1]} Z`,class:"o-ink-s",style:"stroke-dasharray:5 4;stroke-width:2"},g);animLen(gr);
+    [[V[0]+8,H[1]-8,"道路舗装の管理"],[V[3]+8,H[0]+30,"行政業務の統合型GIS"],[V[1]+8,H[3]-8,"ごみ収集ルート"]].forEach(([x,y,s],i)=>{const n=el("g",{class:"fade",style:`animation-delay:${.6+i*.3}s`},g);el("rect",{x:x-4,y:y-12,width:s.length*11+8,height:17,rx:2,class:"o-tag"},n);txt(n,x,y,s,"m-label-b")});
+  }},
+ {id:"taxi",chip:"移動・配車",title:"タクシーの配車を支える",tag:"記事より：GISエンジンの使われ方",
+  body:["GISエンジンは、タクシー配車の支援システムにも組み込まれています。図は配車の様子を表したイメージです。"],
+  facts:["品質とコストパフォーマンス、汎用性に加え、導入から運用まで一貫して丁寧に対応するサポートが評価されている（ITreview 総合満足度4.1）"],
+  draw(g){
+    const cars=[[V[0],H[2]],[V[2],H[0]],[V[4],H[3]]];
+    cars.forEach(([x,y],i)=>{const c=el("g",{class:"fade",style:`animation-delay:${i*.15}s`},g);el("rect",{x:x-8,y:y-5,width:16,height:10,rx:3,class:"o-ink"},c)});
+    pin(g,V[3],H[1],"乗車地",.4);
+    const r=el("path",{d:`M${V[2]} ${H[0]} V${H[1]} H${V[3]}`,class:"o-route"},g);animLen(r);
+  }},
+ {id:"ai",chip:"AI・IoT",title:"これからの掛け合わせ",tag:"記事より：今後の展望",future:true,
+  body:["地図情報の力は、商圏分析や物流の最適化、防災対策など、これからも行政サービスやビジネスに欠かせないもの。AIやIoTと組み合わせれば、異常の検知や需要の予測といった高度な分析もできるようになります。","自社開発のGISエンジンは、クラウド技術との連携や次世代のプラットフォームへの対応など、さらなる進化を目指しています。"],
+  facts:["「GIS×○○」という形で、他の技術や分野と掛け合わせて新しい価値をつくる"],
+  draw(g){
+    const pts=[[V[1],H[0]],[V[2],H[1]],[V[3],H[0]],[V[1],H[2]],[V[4],H[1]],[V[3],H[3]]];
+    pts.forEach(([x,y],i)=>{el("circle",{cx:x,cy:y,r:16,class:"o-water pulse",style:`animation-delay:${i*.3}s;opacity:.2`},g);el("circle",{cx:x,cy:y,r:4,class:"o-water"},g)});
+    const n=el("g",{class:"fade",style:"animation-delay:.4s"},g);el("rect",{x:V[2]+8,y:H[1]+6,width:70,height:17,rx:2,class:"o-tag"},n);txt(n,V[2]+13,H[1]+18,"センサー","m-label-b");
+    const m=el("g",{class:"fade",style:"animation-delay:.8s"},g);
+    el("circle",{cx:V[2],cy:H[1],r:9,class:"o-pin-ring"},m);
+    el("rect",{x:V[2]-40,y:H[1]-34,width:84,height:17,rx:2,class:"o-tag"},m);txt(m,V[2]-35,H[1]-22,"いつもと違う？","m-label-b");
+  }}
+];
+const chipsEl=document.getElementById("chips"),mixMap=document.getElementById("mixMap"),mixCard=document.getElementById("mixCard");
+function showCase(id){
+  const c=CASES.find(x=>x.id===id);
+  [...chipsEl.children].forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.id===id)));
+  baseMap(mixMap);const g=el("g",{},mixMap);c.draw(g);
+  mixCard.innerHTML="";
+  const f=document.createElement("p");f.className="formula";f.innerHTML=`GIS<span class="x">×</span>${c.chip}`;mixCard.appendChild(f);
+  const t=document.createElement("span");t.className="tag"+(c.future?" future":"");t.textContent=c.tag;mixCard.appendChild(t);
+  const h=document.createElement("h3");h.textContent=c.title;mixCard.appendChild(h);
+  c.body.forEach(s=>{const p=document.createElement("p");p.textContent=s;mixCard.appendChild(p)});
+  const ul=document.createElement("ul");ul.className="facts";c.facts.forEach(s=>{const li=document.createElement("li");li.textContent=s;ul.appendChild(li)});mixCard.appendChild(ul);
+  if(c.note){const n=document.createElement("p");n.className="mono";n.style.marginTop="12px";n.textContent="※"+c.note;mixCard.appendChild(n)}
+}
+CASES.forEach(c=>{const b=document.createElement("button");b.type="button";b.className="chip";b.dataset.id=c.id;b.textContent=c.chip;b.setAttribute("aria-pressed","false");b.onclick=()=>showCase(c.id);chipsEl.appendChild(b)});
+showCase("rental");
+const yourX=document.getElementById("yourX"),yourOut=document.getElementById("yourOut");
+yourX.addEventListener("input",()=>{const v=yourX.value.trim();yourOut.textContent="GIS × "+(v||"？")});
+
+/* ---- 働き方 ---- */
+const TL=[
+ {yr:"導入初期",t:"Lotus Notes",title:"グループウェアの先駆けで、自社の仕組みを",text:"デジタルツールの導入は段階的に進めてきました。最初はグループウェアの先駆けである Lotus Notes を使い、自社で運用する業務環境を作っていました。",tools:["Lotus Notes"]},
+ {yr:"2014年",t:"サイボウズOffice・kintone",title:"クラウドの業務ツールへ",text:"2014年にはサイボウズOffice と kintone を導入しました。",tools:["サイボウズOffice","kintone"]},
+ {yr:"2019年",t:"Microsoft Teams",title:"電話やメールが大幅に減った",text:"2019年からは Microsoft Teams を使い始め、電話やメールの頻度が大幅に減少。社内外とのコミュニケーションが格段にスムーズになりました。",tools:["kintone","Microsoft Teams"]},
+ {yr:"時期の記載なし",t:"Dropbox",title:"社内サーバーの管理から解放",text:"クラウド型のドキュメント管理システム Dropbox を採用。エンジニアの負担になっていた社内サーバーの管理やバックアップが減り、本来の仕事に力を注げる環境が整いました。",tools:["kintone","Microsoft Teams","Dropbox"]},
+ {yr:"近年",t:"Lark",title:"チャットも会議も翻訳も、ひとつに",text:"チャット、オンライン会議、ドキュメント共有、翻訳などをひとつにまとめたオールインワンの業務ツール Lark を導入。情報共有と業務の進め方がさらに効率的になり、以前のやり方には戻れないほどの便利さを感じています。",tools:["kintone","Lark"]},
+ {yr:"現在",t:"Lark中心＋生成AI",title:"生成AIも、ごく自然に",text:"ChatGPT Team、Google Workspace、kintone などを併用しつつ、最終的には Lark を中心に業務をまとめる構想です。生成AIも翻訳、議事録の自動作成、アイデア出しなど日常業務のあらゆる場面で使っています。今後はこのノウハウを活かし、中小企業向けに Lark の導入支援や業務改善のコンサルティングにも取り組む考えです。",tools:["Lark","ChatGPT Team","Google Workspace","kintone"]}
+];
+const ALL_TOOLS=["Lotus Notes","サイボウズOffice","kintone","Microsoft Teams","Dropbox","Lark","ChatGPT Team","Google Workspace"];
+const tlEl=document.getElementById("timeline");
+function showTL(i){
+  [...tlEl.children].forEach((b,j)=>b.setAttribute("aria-pressed",String(i===j)));
+  document.getElementById("tlTitle").textContent=TL[i].title;
+  document.getElementById("tlText").textContent=TL[i].text;
+  const ts=document.getElementById("tlTools");ts.innerHTML="";
+  ALL_TOOLS.forEach(n=>{const s=document.createElement("span");s.textContent=n;if(TL[i].tools.includes(n))s.className="on";ts.appendChild(s)});
+}
+TL.forEach((x,i)=>{const b=document.createElement("button");b.type="button";b.innerHTML=`<span class="yr"></span><span class="tl"></span>`;b.querySelector(".yr").textContent=x.yr;b.querySelector(".tl").textContent=x.t;b.onclick=()=>showTL(i);tlEl.appendChild(b)});
+showTL(TL.length-1);
+
+/* ---- 世界 ---- */
+const W=document.getElementById("worldMap");
+const LON0=62,LON1=150,LAT0=-4,LAT1=46;
+const px=lon=>20+(lon-LON0)/(LON1-LON0)*560, py=lat=>20+(LAT1-lat)/(LAT1-LAT0)*310;
+el("rect",{x:0,y:0,width:600,height:360,fill:"var(--sheet)"},W);
+for(let lon=75;lon<=150;lon+=15){el("line",{x1:px(lon),y1:20,x2:px(lon),y2:330,class:"w-grat"},W);txt(W,px(lon),346,lon+"°E","m-label","middle")}
+for(let lat=0;lat<=45;lat+=15){el("line",{x1:20,y1:py(lat),x2:580,y2:py(lat),class:"w-grat"},W);txt(W,24,py(lat)-4,lat+"°N","m-label")}
+const PL=[
+ {id:"toyohashi",name:"豊橋",lon:137.39,lat:34.77,home:true,place:"愛知県豊橋市 ／ 本社",title:"地元の大学と、世界から来た仲間",
+  text:["新卒採用を軸にしながら、人材の多様化を進めています。外国人材については、人材難が言われる前から、留学生のインターンシップやアルバイトの受け入れを通じて接点を築いてきました。","実際に、豊橋技術科学大学を卒業した外国人エンジニアが、主力事業であるGISエンジンの開発で大きく貢献しています。","マーケティングや営業に長けた経験豊富な外部の副業人材も積極的に活用し、セールス体制を強化しています。"]},
+ {id:"bangkok",name:"バンコク",lon:100.5,lat:13.75,place:"タイ ／ 2011年〜",title:"MapQuestAsia を設立",
+  text:["「将来的に海外企業と対等に取引できる体制を整える」という戦略の一歩として、2011年にタイ・バンコクへ現地法人 MapQuestAsia を設立しました。"]},
+ {id:"vietnam",name:"ベトナム",lon:106,lat:16,place:"ベトナム",title:"オフショア開発企業と連携",
+  text:["ベトナムのオフショア開発企業と連携するなど、アジアとのつながりを深めてきました。その中で、現地の人材の獲得も進めています。"]},
+ {id:"india",name:"インド",lon:78.9,lat:21,place:"インド",title:"工科大学から、200名の応募",
+  text:["インドの工科大学の優秀な学生を、200名の応募者の中から採用しました（Zenken社のプログラムを活用）。","オファーは英語で。内定後は約1年間の日本語研修を経て入社し、社内のやり取りには翻訳機能付きのチャットやAIツールが役立っています。"]}
+];
+const home=PL[0];
+PL.slice(1).forEach(p=>{const x1=px(home.lon),y1=py(home.lat),x2=px(p.lon),y2=py(p.lat);const mx=(x1+x2)/2,my=Math.min(y1,y2)-50;el("path",{d:`M${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`,class:"w-arc"},W)});
+const wc=document.getElementById("worldCard");
+function showPlace(id){
+  const p=PL.find(x=>x.id===id);
+  W.querySelectorAll(".pt").forEach(g=>g.setAttribute("aria-pressed",String(g.dataset.id===id)));
+  wc.innerHTML="";
+  const s=document.createElement("span");s.className="place";s.textContent=`${p.place} ／ ${p.lat.toFixed(1)}°N ${p.lon.toFixed(1)}°E`;wc.appendChild(s);
+  const h=document.createElement("h3");h.textContent=p.title;wc.appendChild(h);
+  p.text.forEach((t,i)=>{const q=document.createElement("p");q.textContent=t;if(i)q.style.marginTop="10px";wc.appendChild(q)});
+}
+PL.forEach(p=>{
+  const g=el("g",{class:"pt",tabindex:0,role:"button","aria-label":p.name+"の説明を表示","aria-pressed":"false"},W);g.dataset.id=p.id;
+  const x=px(p.lon),y=py(p.lat);
+  el("circle",{cx:x,cy:y,r:22,class:"hit"},g);
+  el("circle",{cx:x,cy:y,r:12,class:"w-ring"},g);
+  el("circle",{cx:x,cy:y,r:p.home?7:6,class:"w-dot"+(p.home?" home":"")},g);
+  txt(g,p.home?x:x+14,p.home?y-18:y+4,p.name,"m-label-b",p.home?"middle":"start");
+  g.addEventListener("click",()=>showPlace(p.id));
+  g.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();showPlace(p.id)}});
+});
+showPlace("toyohashi");
+})();
+</script>
+</body></html>
