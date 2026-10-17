@@ -44,6 +44,10 @@ section{padding-block:56px;border-bottom:1px solid var(--line)}
 .sec-label{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-bottom:14px}
 .sec-label h2{font-size:clamp(24px,3.4vw,34px)}
 .lead{max-width:40em;color:var(--ink-2);margin-bottom:28px}
+/* 映像 */
+.movie{background:#111A1F;border:1px solid var(--line);border-radius:4px;overflow:hidden;max-width:960px}
+.movie video{display:block;width:100%;height:auto;aspect-ratio:16/9;background:#111A1F}
+.movie .caption{background:var(--sheet);padding-top:10px;min-height:0;margin:0}
 
 /* HERO */
 .hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:40px;align-items:center;padding-block:40px 56px}
@@ -257,6 +261,18 @@ footer{padding-block:28px 48px;font-size:13px;color:var(--ink-2);display:grid;ga
       <div class="world-card" id="worldCard" aria-live="polite"></div>
     </div>
     <p class="stance">「まずは受け入れて、走りながら体制を整える」<small>人材を採るときの考え方として、記事で語られている言葉です。</small></p>
+  </section>
+
+  <!-- 映像 -->
+  <section id="movie">
+    <div class="sec-label"><span class="mono">MOVIE</span><h2>映像で見る</h2></div>
+    <p class="lead">地図の表と裏、GIS×○○、豊橋からアジアへ。ここまでの内容を24秒の映像にまとめました。</p>
+    <div class="movie">
+      <video controls playsinline loop preload="none" poster="mq_movie_poster.jpg" aria-label="マップクエストを紹介する24秒の映像">
+        <source src="mq_movie.mp4" type="video/mp4">
+      </video>
+      <p class="caption">再生すると音が出ます（約24秒）。地図は説明用の架空の街です。</p>
+    </div>
   </section>
 
   <!-- 結び -->
